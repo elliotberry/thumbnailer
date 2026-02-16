@@ -1,0 +1,232 @@
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+  box-sizing: border-box;
+  gap: 1rem;
+}
+
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.toolbar h1 {
+  margin: 0;
+  font-size: 1.6rem;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sizeControl {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.sizeControl input {
+  width: 140px;
+}
+
+.meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.status {
+  margin: 0;
+  font-weight: 600;
+}
+
+.folder {
+  margin: 0;
+  opacity: 0.8;
+  font-size: 0.9rem;
+  word-break: break-all;
+}
+
+.error {
+  margin: 0;
+  color: #e05a5a;
+  font-size: 0.9rem;
+}
+
+.gallery {
+  position: relative;
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, var(--thumb-column-width));
+  grid-auto-rows: max-content;
+  align-items: start;
+  align-content: start;
+  justify-content: start;
+  gap: 0.75rem;
+}
+
+.card {
+  align-self: start;
+  border: 1px solid rgba(130, 130, 130, 0.35);
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(127, 127, 127, 0.08);
+}
+
+.thumbButton {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.card img {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  display: block;
+  background: rgba(127, 127, 127, 0.1);
+}
+
+.cardInfo {
+  padding: 0.6rem;
+}
+
+.name {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.path {
+  margin: 0.3rem 0 0;
+  font-size: 0.8rem;
+  opacity: 0.75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.empty {
+  border: 1px dashed rgba(130, 130, 130, 0.45);
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  opacity: 0.8;
+}
+
+.loadingOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  border-radius: 12px;
+  background: rgba(18, 20, 24, 0.72);
+  display: grid;
+  place-items: center;
+  gap: 0.65rem;
+  align-content: center;
+  pointer-events: all;
+}
+
+.loadingOverlay p {
+  margin: 0;
+  font-weight: 600;
+}
+
+.spinner {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 3px solid rgba(255, 255, 255, 0.28);
+  border-top-color: #ffffff;
+  animation: spin 0.85s linear infinite;
+}
+
+.previewModalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(0, 0, 0, 0.72);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  box-sizing: border-box;
+}
+
+.previewModal {
+  width: min(1000px, 100%);
+  max-height: calc(100vh - 2rem);
+  background: #232833;
+  border: 1px solid rgba(130, 130, 130, 0.35);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.previewHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.8rem 1rem;
+}
+
+.previewTitle {
+  margin: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.previewClose {
+  white-space: nowrap;
+}
+
+.previewImageWrap {
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.previewImage {
+  display: block;
+  max-width: 100%;
+  max-height: min(78vh, 1600px);
+  width: auto;
+  height: auto;
+}
+
+.previewPath {
+  margin: 0;
+  padding: 0.75rem 1rem 1rem;
+  font-size: 0.85rem;
+  opacity: 0.8;
+  word-break: break-all;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
