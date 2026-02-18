@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
-import { convertFileSrc, invoke } from '@tauri-apps/api/core'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { open } from '@tauri-apps/plugin-dialog'
 import './App.css'
 
@@ -12,11 +13,21 @@ function clampThumbnailSize(value) {
   return Math.max(MIN_THUMBNAIL_SIZE, Math.min(MAX_THUMBNAIL_SIZE, value))
 }
 
+function hasTauriInvoke() {
+  return Boolean(window.__TAURI_INTERNALS__?.invoke)
+}
+
+function formatImageCount(count) {
+  const safeCount = Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0
+  return `${safeCount} image${safeCount === 1 ? '' : 's'}`
+}
+
 function App() {
   const [selectedFolder, setSelectedFolder] = useState('')
   const [items, setItems] = useState([])
-  const [status, setStatus] = useState('Pick a folder to start.')
+  const [status, setStatus] = useState('')
   const [loading, setLoading] = useState(false)
+  const [loadingText, setLoadingText] = useState('Loading images...')
   const [error, setError] = useState('')
   const [thumbnailSize, setThumbnailSize] = useState(() => {
     if (typeof window === 'undefined') {
@@ -29,15 +40,23 @@ function App() {
     return clampThumbnailSize(Math.round(storedValue))
   })
   const [previewItem, setPreviewItem] = useState(null)
+  const [previewImageSrc, setPreviewImageSrc] = useState('')
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState('')
+  const [thumbnailDataByPath, setThumbnailDataByPath] = useState({})
+  const hydrationRunIdRef = useRef(0)
+  const loadGalleryRef = useRef(null)
 
   const hasItems = items.length > 0
   const columnWidthPx = useMemo(() => thumbnailSize, [thumbnailSize])
-  const previewImageSrc = useMemo(() => {
+  const currentPreviewIndex = useMemo(() => {
     if (!previewItem) {
-      return ''
+      return -1
     }
-    return convertFileSrc(previewItem.path)
-  }, [previewItem])
+    return items.findIndex((item) => item.path === previewItem.path)
+  }, [items, previewItem])
+  const hasPreviousPreview = currentPreviewIndex > 0
+  const hasNextPreview = currentPreviewIndex >= 0 && currentPreviewIndex < items.length - 1
   const emptyMessage = useMemo(() => {
     if (loading) {
       return 'Building thumbnails...'
@@ -49,13 +68,53 @@ function App() {
   }, [loading, selectedFolder])
 
   useEffect(() => {
+    if (!hasTauriInvoke()) {
+      return undefined
+    }
+    let unlisten
+    listen('thumbnail-progress', (event) => {
+      const payload = event.payload
+      if (!payload || typeof payload !== 'object') {
+        return
+      }
+      const current = Number(payload.current ?? 0)
+      const total = Number(payload.total ?? 0)
+      const name = String(payload.name ?? 'image')
+      if (current > 0 && total > 0) {
+        setLoadingText(`Generating ${current}/${total}: ${name}`)
+      } else {
+        setLoadingText(`Generating: ${name}`)
+      }
+    })
+      .then((unlistenFn) => {
+        unlisten = unlistenFn
+      })
+      .catch((eventError) => {
+        setError(String(eventError))
+      })
+    return () => {
+      if (unlisten) {
+        unlisten()
+      }
+    }
+  }, [])
+
+  useEffect(() => {
     let disposed = false
     async function loadInitialFolder() {
       try {
+        if (!hasTauriInvoke()) {
+          if (!disposed) {
+            setStatus('Run this app with Tauri (`npm run tauri dev`) to enable folder scan.')
+          }
+          return
+        }
         const initialFolder = await invoke('get_initial_folder')
         if (!disposed && initialFolder) {
           setSelectedFolder(initialFolder)
-          await loadGallery(initialFolder)
+          if (loadGalleryRef.current) {
+            await loadGalleryRef.current(initialFolder)
+          }
         }
       } catch (invokeError) {
         if (!disposed) {
@@ -77,39 +136,150 @@ function App() {
     if (!previewItem) {
       return undefined
     }
+    function navigatePreview(direction) {
+      if (currentPreviewIndex < 0) {
+        return
+      }
+      const nextIndex = currentPreviewIndex + direction
+      if (nextIndex < 0 || nextIndex >= items.length) {
+        return
+      }
+      setPreviewItem(items[nextIndex])
+    }
     function onKeydown(event) {
       if (event.key === 'Escape') {
         setPreviewItem(null)
+        return
+      }
+      if (event.key === 'ArrowLeft') {
+        navigatePreview(-1)
+        return
+      }
+      if (event.key === 'ArrowRight') {
+        navigatePreview(1)
       }
     }
     window.addEventListener('keydown', onKeydown)
     return () => {
       window.removeEventListener('keydown', onKeydown)
     }
+  }, [currentPreviewIndex, items, previewItem])
+
+  useEffect(() => {
+    if (!previewItem) {
+      setPreviewImageSrc('')
+      setPreviewLoading(false)
+      setPreviewError('')
+      return
+    }
+
+    let cancelled = false
+    async function loadPreview() {
+      if (!hasTauriInvoke()) {
+        setPreviewError('Preview unavailable outside Tauri runtime.')
+        return
+      }
+      setPreviewLoading(true)
+      setPreviewError('')
+      setPreviewImageSrc('')
+      try {
+        const dataUrl = await invoke('load_full_image', { path: previewItem.path })
+        if (!cancelled) {
+          setPreviewImageSrc(String(dataUrl))
+        }
+      } catch (previewLoadError) {
+        if (!cancelled) {
+          setPreviewError(String(previewLoadError))
+        }
+      } finally {
+        if (!cancelled) {
+          setPreviewLoading(false)
+        }
+      }
+    }
+    loadPreview()
+    return () => {
+      cancelled = true
+    }
   }, [previewItem])
 
-  async function loadGallery(folder) {
+  const hydrateThumbnails = useCallback(async (galleryItems, runId) => {
+    const maxConcurrent = 6
+    let cursor = 0
+
+    async function worker() {
+      while (cursor < galleryItems.length && runId === hydrationRunIdRef.current) {
+        const currentIndex = cursor
+        cursor += 1
+        const item = galleryItems[currentIndex]
+        try {
+          const dataUrl = await invoke('load_thumbnail', {
+            path: item.path,
+            thumbnailSize: THUMBNAIL_SIZE,
+          })
+          if (runId !== hydrationRunIdRef.current) {
+            return
+          }
+          setThumbnailDataByPath((prev) => {
+            if (prev[item.path]) {
+              return prev
+            }
+            return { ...prev, [item.path]: String(dataUrl) }
+          })
+        } catch {
+          // Keep going if one thumbnail fails.
+        }
+      }
+    }
+
+    const workerCount = Math.min(maxConcurrent, galleryItems.length)
+    await Promise.all(Array.from({ length: workerCount }, () => worker()))
+  }, [])
+
+  const loadGallery = useCallback(async (folder) => {
+    if (!hasTauriInvoke()) {
+      setError('Tauri API unavailable. Start with `npm run tauri dev`.')
+      return
+    }
     setLoading(true)
+    setLoadingText('Preparing thumbnails...')
     setError('')
+    hydrationRunIdRef.current += 1
+    setThumbnailDataByPath({})
     setStatus(`Scanning ${folder}...`)
     try {
-      const galleryItems = await invoke('load_gallery', {
+      const response = await invoke('load_gallery', {
         folderPath: folder,
         thumbnailSize: THUMBNAIL_SIZE,
       })
+      const galleryItems = Array.isArray(response?.items) ? response.items : []
       setItems(galleryItems)
-      setStatus(`Loaded ${galleryItems.length} image(s).`)
+      if (response?.cancelled) {
+        setStatus(`Stopped. Loaded ${formatImageCount(galleryItems.length)} before cancel.`)
+      } else {
+        setStatus(`Loaded ${formatImageCount(galleryItems.length)}.`)
+      }
+      hydrateThumbnails(galleryItems, hydrationRunIdRef.current)
     } catch (invokeError) {
       setItems([])
       setStatus('Failed to load folder.')
       setError(String(invokeError))
     } finally {
       setLoading(false)
+      setLoadingText('Loading images...')
     }
-  }
+  }, [hydrateThumbnails])
+
+  useEffect(() => {
+    loadGalleryRef.current = loadGallery
+  }, [loadGallery])
 
   async function pickFolder() {
     setError('')
+    if (!hasTauriInvoke()) {
+      setError('Folder picker requires Tauri runtime. Start with `npm run tauri dev`.')
+      return
+    }
     const selected = await open({
       directory: true,
       multiple: false,
@@ -122,40 +292,56 @@ function App() {
     await loadGallery(selected)
   }
 
-  async function refreshCurrentFolder() {
-    if (!selectedFolder) {
+  async function stopGalleryScan() {
+    if (!loading) {
       return
     }
-    await loadGallery(selectedFolder)
+    try {
+      await invoke('cancel_gallery_scan')
+      setStatus('Stopping thumbnail generation...')
+    } catch (cancelError) {
+      setError(String(cancelError))
+    }
+  }
+
+  function goToPreview(direction) {
+    if (currentPreviewIndex < 0) {
+      return
+    }
+    const nextIndex = currentPreviewIndex + direction
+    if (nextIndex < 0 || nextIndex >= items.length) {
+      return
+    }
+    setPreviewItem(items[nextIndex])
   }
 
   return (
     <main className="app">
       <header className="toolbar">
         <div className="actions">
-          <label className="sizeControl">
-            <span>Size {thumbnailSize}px</span>
-            <input
-              type="range"
-              min={MIN_THUMBNAIL_SIZE}
-              max={MAX_THUMBNAIL_SIZE}
-              step="1"
-              value={thumbnailSize}
-              onChange={(event) =>
-                setThumbnailSize(clampThumbnailSize(Number(event.target.value)))
-              }
-            />
-          </label>
+          {selectedFolder && (
+            <label className="sizeControl">
+              <span>Size {thumbnailSize}px</span>
+              <input
+                type="range"
+                min={MIN_THUMBNAIL_SIZE}
+                max={MAX_THUMBNAIL_SIZE}
+                step="1"
+                value={thumbnailSize}
+                onChange={(event) =>
+                  setThumbnailSize(clampThumbnailSize(Number(event.target.value)))
+                }
+              />
+            </label>
+          )}
           <button type="button" onClick={pickFolder} disabled={loading}>
             Pick Folder
           </button>
-          <button
-            type="button"
-            onClick={refreshCurrentFolder}
-            disabled={loading || !selectedFolder}
-          >
-            Refresh
-          </button>
+          {loading && (
+            <button type="button" onClick={stopGalleryScan}>
+              Stop
+            </button>
+          )}
         </div>
       </header>
 
@@ -172,26 +358,34 @@ function App() {
         {loading && (
           <div className="loadingOverlay" aria-live="polite" aria-busy="true">
             <div className="spinner" />
-            <p>Loading images...</p>
+            <p>{loadingText}</p>
           </div>
         )}
-        {!hasItems && <div className="empty">{emptyMessage}</div>}
-        {items.map((item) => (
-          <article className="card" key={item.path}>
-            <button
-              type="button"
-              className="thumbButton"
-              onClick={() => setPreviewItem(item)}
-              title={`Open ${item.name}`}
-            >
-              <img src={item.thumbnailDataUrl} alt={item.name} loading="lazy" />
-            </button>
-            <div className="cardInfo">
-              <p className="name">{item.name}</p>
-              <p className="path">{item.path}</p>
-            </div>
-          </article>
-        ))}
+        {!hasItems && selectedFolder && <div className="empty">{emptyMessage}</div>}
+        {hasItems && (
+          <div className="galleryViewport galleryGrid">
+            {items.map((item) => (
+              <article className="card" key={item.path} style={{ width: `${columnWidthPx}px` }}>
+                <button
+                  type="button"
+                  className="thumbButton"
+                  onClick={() => setPreviewItem(item)}
+                  title={`Open ${item.name}`}
+                >
+                  {thumbnailDataByPath[item.path] ? (
+                    <img src={thumbnailDataByPath[item.path]} alt={item.name} loading="lazy" />
+                  ) : (
+                    <div className="thumbPlaceholder" />
+                  )}
+                </button>
+                <div className="cardInfo">
+                  <p className="name">{item.name}</p>
+                  <p className="path">{item.path}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
       </section>
 
       {previewItem && (
@@ -202,17 +396,43 @@ function App() {
         >
           <div className="previewModal" onClick={(event) => event.stopPropagation()}>
             <div className="previewHeader">
+              <div className="previewNav">
+                <button
+                  type="button"
+                  onClick={() => goToPreview(-1)}
+                  disabled={!hasPreviousPreview}
+                >
+                  Left
+                </button>
+                <button
+                  type="button"
+                  onClick={() => goToPreview(1)}
+                  disabled={!hasNextPreview}
+                >
+                  Right
+                </button>
+              </div>
               <p className="previewTitle">{previewItem.name}</p>
-              <button
-                type="button"
-                className="previewClose"
-                onClick={() => setPreviewItem(null)}
-              >
-                Close
-              </button>
+              <div className="previewNav">
+                <button
+                  type="button"
+                  className="previewClose"
+                  onClick={() => setPreviewItem(null)}
+                >
+                  Close
+                </button>
+              </div>
             </div>
             <div className="previewImageWrap">
-              <img src={previewImageSrc} alt={previewItem.name} className="previewImage" />
+              {previewLoading && <p className="previewUnavailable">Loading preview...</p>}
+              {!previewLoading && previewImageSrc ? (
+                <img src={previewImageSrc} alt={previewItem.name} className="previewImage" />
+              ) : null}
+              {!previewLoading && !previewImageSrc ? (
+                <p className="previewUnavailable">
+                  {previewError || 'Preview unavailable for this image.'}
+                </p>
+              ) : null}
             </div>
             <p className="previewPath">{previewItem.path}</p>
           </div>

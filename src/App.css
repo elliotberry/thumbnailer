@@ -64,17 +64,33 @@
 .gallery {
   position: relative;
   flex: 1;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, var(--thumb-column-width));
-  grid-auto-rows: max-content;
-  align-items: start;
-  align-content: start;
-  justify-content: start;
-  gap: 0.75rem;
+  display: flex;
+  min-height: 0;
+}
+
+.galleryViewport {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow: auto;
+}
+
+.galleryGrid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-content: flex-start;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 0 2px 12px;
+  box-sizing: border-box;
 }
 
 .card {
-  align-self: start;
+  height: auto;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
   border: 1px solid rgba(130, 130, 130, 0.35);
   border-radius: 10px;
   overflow: hidden;
@@ -84,6 +100,7 @@
 .thumbButton {
   display: block;
   width: 100%;
+  height: var(--thumb-column-width);
   border: 0;
   border-radius: 0;
   padding: 0;
@@ -93,30 +110,50 @@
 
 .card img {
   width: 100%;
-  height: auto;
-  aspect-ratio: 1 / 1;
+  height: 100%;
   object-fit: cover;
   display: block;
   background: rgba(127, 127, 127, 0.1);
 }
 
+.thumbPlaceholder {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    rgba(127, 127, 127, 0.18) 0%,
+    rgba(127, 127, 127, 0.3) 50%,
+    rgba(127, 127, 127, 0.18) 100%
+  );
+  background-size: 200% 100%;
+  animation: placeholderSweep 1.2s ease-in-out infinite;
+}
+
 .cardInfo {
+  min-height: 64px;
+  height: auto;
+  box-sizing: border-box;
   padding: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
 }
 
 .name {
   margin: 0;
   font-size: 0.95rem;
   font-weight: 600;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .path {
-  margin: 0.3rem 0 0;
+  margin: 0;
   font-size: 0.8rem;
   opacity: 0.75;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .empty {
@@ -185,6 +222,12 @@
   padding: 0.8rem 1rem;
 }
 
+.previewNav {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
 .previewTitle {
   margin: 0;
   font-weight: 600;
@@ -214,6 +257,12 @@
   height: auto;
 }
 
+.previewUnavailable {
+  margin: 0;
+  padding: 1rem;
+  opacity: 0.85;
+}
+
 .previewPath {
   margin: 0;
   padding: 0.75rem 1rem 1rem;
@@ -228,5 +277,14 @@
   }
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes placeholderSweep {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
   }
 }
