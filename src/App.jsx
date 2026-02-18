@@ -22,6 +22,19 @@ function formatImageCount(count) {
   return `${safeCount} image${safeCount === 1 ? '' : 's'}`
 }
 
+function getDroppedPaths(payload) {
+  if (Array.isArray(payload)) {
+    return payload.map((entry) => String(entry))
+  }
+  if (!payload || typeof payload !== 'object') {
+    return []
+  }
+  if (Array.isArray(payload.paths)) {
+    return payload.paths.map((entry) => String(entry))
+  }
+  return []
+}
+
 function App() {
   const [selectedFolder, setSelectedFolder] = useState('')
   const [items, setItems] = useState([])
@@ -46,6 +59,7 @@ function App() {
   const [thumbnailDataByPath, setThumbnailDataByPath] = useState({})
   const hydrationRunIdRef = useRef(0)
   const loadGalleryRef = useRef(null)
+  const lastDroppedFolderRef = useRef({ path: '', timestamp: 0 })
 
   const hasItems = items.length > 0
   const columnWidthPx = useMemo(() => thumbnailSize, [thumbnailSize])
@@ -272,6 +286,57 @@ function App() {
 
   useEffect(() => {
     loadGalleryRef.current = loadGallery
+  }, [loadGallery])
+
+  useEffect(() => {
+    if (!hasTauriInvoke()) {
+      return undefined
+    }
+
+    let disposed = false
+    let unlistenFileDrop
+    let unlistenDragDrop
+
+    async function handleFolderDrop(event) {
+      const droppedPaths = getDroppedPaths(event.payload)
+      if (droppedPaths.length === 0) {
+        return
+      }
+
+      const nextFolder = droppedPaths[0]
+      const now = Date.now()
+      const lastDrop = lastDroppedFolderRef.current
+      if (lastDrop.path === nextFolder && now - lastDrop.timestamp < 500) {
+        return
+      }
+      lastDroppedFolderRef.current = { path: nextFolder, timestamp: now }
+
+      setSelectedFolder(nextFolder)
+      await loadGallery(nextFolder)
+    }
+
+    async function registerDropListeners() {
+      try {
+        unlistenFileDrop = await listen('tauri://file-drop', handleFolderDrop)
+        unlistenDragDrop = await listen('tauri://drag-drop', handleFolderDrop)
+      } catch (eventError) {
+        if (!disposed) {
+          setError(String(eventError))
+        }
+      }
+    }
+
+    registerDropListeners()
+
+    return () => {
+      disposed = true
+      if (unlistenFileDrop) {
+        unlistenFileDrop()
+      }
+      if (unlistenDragDrop) {
+        unlistenDragDrop()
+      }
+    }
   }, [loadGallery])
 
   async function pickFolder() {
