@@ -43,15 +43,7 @@ function App() {
 
   const hasItems = items.length > 0
   const columnWidthPx = useMemo(() => thumbnailSize, [thumbnailSize])
-  const emptyMessage = useMemo(() => {
-    if (loading) {
-      return 'Building thumbnails...'
-    }
-    if (!selectedFolder) {
-      return 'No folder selected.'
-    }
-    return 'No supported images found in this folder.'
-  }, [loading, selectedFolder])
+
 
   async function pickFolder() {
     clearError()
@@ -90,8 +82,6 @@ function App() {
         loading={loading}
         loadingText={loadingText}
         hasItems={hasItems}
-        selectedFolder={selectedFolder}
-        emptyMessage={emptyMessage}
         columnWidthPx={columnWidthPx}
         items={items}
         thumbnailDataByPath={thumbnailDataByPath}

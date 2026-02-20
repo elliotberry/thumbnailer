@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     env,
     fs,
     io::Cursor,
@@ -7,7 +8,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    time::UNIX_EPOCH,
+    time::{Duration, Instant, UNIX_EPOCH},
 };
 
 use base64::Engine;
@@ -19,6 +20,7 @@ use sha2::{Digest, Sha256};
 use tauri::{Emitter, Manager};
 
 const DB_FILE_NAME: &str = "thumbnail_cache.sqlite";
+const PROGRESS_EMIT_INTERVAL: Duration = Duration::from_millis(100);
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,6 +33,7 @@ struct GalleryItem {
 #[serde(rename_all = "camelCase")]
 struct LoadGalleryResponse {
     items: Vec<GalleryItem>,
+    thumbnails: HashMap<String, String>,
     cancelled: bool,
 }
 
@@ -153,10 +156,12 @@ fn load_gallery_blocking(
 
     let mut results = Vec::new();
     let mut pending = Vec::new();
+    let mut thumbnails = HashMap::new();
 
     let mut skipped_count = 0usize;
     let mut cancelled = false;
     let total = image_paths.len();
+    let mut last_progress_emit_at: Option<Instant> = None;
     for (index, image_path) in image_paths.into_iter().enumerate() {
         if cancel_requested.load(Ordering::Relaxed) {
             cancelled = true;
@@ -170,12 +175,23 @@ fn load_gallery_blocking(
                 .map(|name| name.to_string_lossy().to_string())
                 .unwrap_or_else(|| "image".to_string()),
         };
-        if let Err(err) = app.emit("thumbnail-progress", &progress) {
-            log::warn!("Failed to emit thumbnail progress: {}", err);
+        let is_last_item = index + 1 == total;
+        let should_emit = is_last_item
+            || last_progress_emit_at
+                .map(|timestamp| timestamp.elapsed() >= PROGRESS_EMIT_INTERVAL)
+                .unwrap_or(true);
+        if should_emit {
+            last_progress_emit_at = Some(Instant::now());
+            if let Err(err) = app.emit("thumbnail-progress", &progress) {
+                log::warn!("Failed to emit thumbnail progress: {}", err);
+            }
         }
 
         match prepare_single_image(&connection, &image_path) {
-            Ok((item, maybe_pending)) => {
+            Ok((item, maybe_pending, maybe_thumbnail_data_url)) => {
+                if let Some(thumbnail_data_url) = maybe_thumbnail_data_url {
+                    thumbnails.insert(item.path.clone(), thumbnail_data_url);
+                }
                 results.push(item);
                 if let Some(pending_item) = maybe_pending {
                     pending.push(pending_item);
@@ -218,6 +234,8 @@ fn load_gallery_blocking(
                 .transaction()
                 .map_err(|err| format!("Failed to start cache transaction: {err}"))?;
             for entry in generated {
+                let data_url = data_url_for_blob(&entry.blob, &entry.mime);
+                thumbnails.insert(entry.source_path.clone(), data_url);
                 tx.execute(
                     "INSERT INTO thumbnails (
                        cache_key,
@@ -250,6 +268,7 @@ fn load_gallery_blocking(
     }
     Ok(LoadGalleryResponse {
         items: results,
+        thumbnails,
         cancelled,
     })
 }
@@ -336,7 +355,7 @@ fn load_thumbnail_blocking(
 fn prepare_single_image(
     connection: &Connection,
     image_path: &Path,
-) -> Result<(GalleryItem, Option<PendingThumbnail>), String> {
+) -> Result<(GalleryItem, Option<PendingThumbnail>, Option<String>), String> {
     let modified_unix = last_modified_unix(image_path)?;
     let cache_key = cache_key_for_path(image_path);
     let cached: Option<(Vec<u8>, String)> = connection
@@ -358,8 +377,9 @@ fn prepare_single_image(
         path: image_path.to_string_lossy().to_string(),
     };
 
-    if cached.is_some() {
-        return Ok((item, None));
+    if let Some((blob, mime_type)) = cached {
+        let data_url = data_url_for_blob(&blob, &mime_type);
+        return Ok((item, None, Some(data_url)));
     }
 
     Ok((
@@ -369,6 +389,7 @@ fn prepare_single_image(
             cache_key,
             modified_unix,
         }),
+        None,
     ))
 }
 
@@ -497,6 +518,11 @@ fn generate_thumbnail_blob(path: &Path, thumbnail_size: u32) -> Result<(Vec<u8>,
             .map_err(|err| format!("Failed to encode thumbnail {}: {err}", path.display()))?;
     }
     Ok((png_bytes, "image/png".to_string()))
+}
+
+fn data_url_for_blob(blob: &[u8], mime_type: &str) -> String {
+    let encoded = base64::engine::general_purpose::STANDARD.encode(blob);
+    format!("data:{mime_type};base64,{encoded}")
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

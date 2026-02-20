@@ -72,17 +72,10 @@
   flex: 1;
   min-height: 0;
   width: 100%;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .galleryGrid {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-content: flex-start;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 0 2px 12px;
   box-sizing: border-box;
 }
 
@@ -130,8 +123,7 @@
 }
 
 .cardInfo {
-  min-height: 64px;
-  height: auto;
+  height: 64px;
   box-sizing: border-box;
   padding: 0.6rem;
   display: flex;

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { invoke } from '@tauri-apps/api/core'
+import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { hasTauriInvoke } from '../utils/gallery'
 
 export function usePreview(items) {
@@ -84,6 +84,20 @@ export function usePreview(items) {
       setPreviewError('')
       setPreviewImageSrc('')
       try {
+        const assetUrl = convertFileSrc(previewItem.path)
+        const assetLoaded = await new Promise((resolve) => {
+          const probe = new Image()
+          probe.onload = () => resolve(true)
+          probe.onerror = () => resolve(false)
+          probe.src = assetUrl
+        })
+        if (assetLoaded) {
+          if (!cancelled) {
+            setPreviewImageSrc(String(assetUrl))
+          }
+          return
+        }
+
         const dataUrl = await invoke('load_full_image', { path: previewItem.path })
         if (!cancelled) {
           setPreviewImageSrc(String(dataUrl))

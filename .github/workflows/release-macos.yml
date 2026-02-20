@@ -1,0 +1,48 @@
+name: Build and Release macOS App
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+      uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build Tauri macOS app bundle
+        run: npm run tauri build -- --bundles app
+
+      - name: Archive .app bundle
+        run: |
+          APP_PATH="$(ls -d src-tauri/target/release/bundle/macos/*.app | head -n 1)"
+          APP_NAME="$(basename "$APP_PATH" .app)"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$APP_NAME-macos.zip"
+
+      - name: Publish release artifact
+        uses: ncipollo/release-action@v1
+        with:
+          tag: main-latest
+          name: Main Latest Build
+          artifacts: "*-macos.zip"
+          allowUpdates: true
+          replacesArtifacts: true
+          generateReleaseNotes: true

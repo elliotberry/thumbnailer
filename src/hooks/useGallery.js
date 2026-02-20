@@ -12,7 +12,7 @@ export function useGallery() {
   const [loadingText, setLoadingText] = useState('Loading images...')
   const [error, setError] = useState('')
   const [thumbnailDataByPath, setThumbnailDataByPath] = useState({})
-  const hydrationRunIdRef = useRef(0)
+  const loadRunIdRef = useRef(0)
   const lastDroppedFolderRef = useRef({ path: '', timestamp: 0 })
 
   useEffect(() => {
@@ -47,49 +47,17 @@ export function useGallery() {
     }
   }, [])
 
-  const hydrateThumbnails = useCallback(async (galleryItems, runId) => {
-    const maxConcurrent = 6
-    let cursor = 0
-
-    async function worker() {
-      while (cursor < galleryItems.length && runId === hydrationRunIdRef.current) {
-        const currentIndex = cursor
-        cursor += 1
-        const item = galleryItems[currentIndex]
-        try {
-          const dataUrl = await invoke('load_thumbnail', {
-            path: item.path,
-            thumbnailSize: THUMBNAIL_LOAD_SIZE,
-          })
-          if (runId !== hydrationRunIdRef.current) {
-            return
-          }
-          setThumbnailDataByPath((prev) => {
-            if (prev[item.path]) {
-              return prev
-            }
-            return { ...prev, [item.path]: String(dataUrl) }
-          })
-        } catch {
-          // Keep going if one thumbnail fails.
-        }
-      }
-    }
-
-    const workerCount = Math.min(maxConcurrent, galleryItems.length)
-    await Promise.all(Array.from({ length: workerCount }, () => worker()))
-  }, [])
-
   const loadGallery = useCallback(
     async (folder) => {
       if (!hasTauriInvoke()) {
         setError('Tauri API unavailable. Start with `npm run tauri dev`.')
         return
       }
+      const runId = loadRunIdRef.current + 1
+      loadRunIdRef.current = runId
       setLoading(true)
       setLoadingText('Preparing thumbnails...')
       setError('')
-      hydrationRunIdRef.current += 1
       setThumbnailDataByPath({})
       setStatus(`Scanning ${folder}...`)
       try {
@@ -97,24 +65,37 @@ export function useGallery() {
           folderPath: folder,
           thumbnailSize: THUMBNAIL_LOAD_SIZE,
         })
+        if (runId !== loadRunIdRef.current) {
+          return
+        }
         const galleryItems = Array.isArray(response?.items) ? response.items : []
+        const thumbnails =
+          response?.thumbnails && typeof response.thumbnails === 'object'
+            ? response.thumbnails
+            : {}
         setItems(galleryItems)
+        setThumbnailDataByPath(thumbnails)
         if (response?.cancelled) {
           setStatus(`Stopped. Loaded ${formatImageCount(galleryItems.length)} before cancel.`)
         } else {
           setStatus(`Loaded ${formatImageCount(galleryItems.length)}.`)
         }
-        hydrateThumbnails(galleryItems, hydrationRunIdRef.current)
       } catch (invokeError) {
+        if (runId !== loadRunIdRef.current) {
+          return
+        }
         setItems([])
+        setThumbnailDataByPath({})
         setStatus('Failed to load folder.')
         setError(String(invokeError))
       } finally {
-        setLoading(false)
-        setLoadingText('Loading images...')
+        if (runId === loadRunIdRef.current) {
+          setLoading(false)
+          setLoadingText('Loading images...')
+        }
       }
     },
-    [hydrateThumbnails],
+    [],
   )
 
   useEffect(() => {
