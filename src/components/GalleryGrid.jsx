@@ -67,8 +67,6 @@ export function GalleryGrid({
   loading,
   loadingText,
   hasItems,
-  selectedFolder,
-  emptyMessage,
   columnWidthPx,
   items,
   thumbnailDataByPath,
@@ -85,7 +83,7 @@ export function GalleryGrid({
           <p>{loadingText}</p>
         </div>
       )}
-      {!hasItems && selectedFolder && <div className="empty">{emptyMessage}</div>}
+    
       {hasItems && (
         <div className="galleryViewport">
           <AutoSizer
