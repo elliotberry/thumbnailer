@@ -3,7 +3,7 @@ name: Build and Release macOS App
 on:
   push:
     branches:
-    - main
+      - main
 
 permissions:
   contents: write
@@ -13,27 +13,28 @@ jobs:
     runs-on: macos-latest
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: 20
-        cache: npm
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
 
-    - name: Setup Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-    - name: Install frontend dependencies
-      run: npm ci && npm install -g @tauri-apps/cli
+      - name: Install frontend dependencies
+        run: npm ci
 
-    - name: Build and upload via tauri-action
-      uses: tauri-apps/tauri-action@v0.6.1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-      with:
-        tagName: main-latest
-        releaseName: Main Latest Build
-        releaseBody: Latest macOS build from main.
-        generateReleaseNotes: true
-        args: --bundles app
+      - name: Build and upload via tauri-action
+        uses: tauri-apps/tauri-action@v0.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tauriScript: npx tauri
+          tagName: main-latest
+          releaseName: Main Latest Build
+          releaseBody: Latest macOS build from main.
+          generateReleaseNotes: true
+          args: --bundles app
