@@ -13,7 +13,8 @@
 *.log
 # Tauri / Rust build output
 /src-tauri/target/
-
+dist/
+dist
 # Tauri generated schema files
 /src-tauri/gen/schemas
 # OS generated files #
