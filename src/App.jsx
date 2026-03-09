@@ -34,11 +34,10 @@ function App() {
     previewImageSrc,
     previewLoading,
     previewError,
-    hasPreviousPreview,
-    hasNextPreview,
+    previewPosition,
+    previewTotal,
     setPreviewItem,
     closePreview,
-    goToPreview,
   } = usePreview(items)
 
   const hasItems = items.length > 0
@@ -93,11 +92,9 @@ function App() {
         previewLoading={previewLoading}
         previewImageSrc={previewImageSrc}
         previewError={previewError}
-        hasPreviousPreview={hasPreviousPreview}
-        hasNextPreview={hasNextPreview}
+        previewPosition={previewPosition}
+        previewTotal={previewTotal}
         onClose={closePreview}
-        onGoLeft={() => goToPreview(-1)}
-        onGoRight={() => goToPreview(1)}
       />
     </main>
   )

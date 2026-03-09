@@ -17,6 +17,8 @@ export function usePreview(items) {
 
   const hasPreviousPreview = currentPreviewIndex > 0
   const hasNextPreview = currentPreviewIndex >= 0 && currentPreviewIndex < items.length - 1
+  const previewPosition = currentPreviewIndex >= 0 ? currentPreviewIndex + 1 : 0
+  const previewTotal = items.length
 
   function closePreview() {
     setPreviewItem(null)
@@ -125,6 +127,8 @@ export function usePreview(items) {
     previewError,
     hasPreviousPreview,
     hasNextPreview,
+    previewPosition,
+    previewTotal,
     setPreviewItem,
     closePreview,
     goToPreview,

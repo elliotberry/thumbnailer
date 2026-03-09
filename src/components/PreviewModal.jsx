@@ -3,11 +3,9 @@ export function PreviewModal({
   previewLoading,
   previewImageSrc,
   previewError,
-  hasPreviousPreview,
-  hasNextPreview,
+  previewPosition,
+  previewTotal,
   onClose,
-  onGoLeft,
-  onGoRight,
 }) {
   if (!previewItem) {
     return null
@@ -17,14 +15,7 @@ export function PreviewModal({
     <div className="previewModalBackdrop" onClick={onClose} role="presentation">
       <div className="previewModal" onClick={(event) => event.stopPropagation()}>
         <div className="previewHeader">
-          <div className="previewNav">
-            <button type="button" onClick={onGoLeft} disabled={!hasPreviousPreview}>
-              Left
-            </button>
-            <button type="button" onClick={onGoRight} disabled={!hasNextPreview}>
-              Right
-            </button>
-          </div>
+          <p className="previewCounter">{`${previewPosition}/${previewTotal}`}</p>
           <p className="previewTitle">{previewItem.name}</p>
           <div className="previewNav">
             <button type="button" className="previewClose" onClick={onClose}>
