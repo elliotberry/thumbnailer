@@ -4,6 +4,17 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "src/**"
+      - "src-tauri/**"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.js"
+      - ".github/workflows/release-macos.yml"
+
+concurrency:
+  group: release-macos-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -23,9 +34,17 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies/build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            src-tauri -> src-tauri/target
 
       - name: Install frontend dependencies
         run: npm ci
