@@ -15,6 +15,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set release date
+        run: echo "RELEASE_DATE=$(date +'%m.%d.%Y')" >> "$GITHUB_ENV"
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -33,8 +36,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tauriScript: npx tauri
-          tagName: main-latest
-          releaseName: Main Latest Build
-          releaseBody: Latest macOS build from main.
+          tagName: release-${{ env.RELEASE_DATE }}-${{ github.run_id }}
+          releaseName: ${{ env.RELEASE_DATE }}
+          releaseBody: macOS build from main on ${{ env.RELEASE_DATE }}.
           generateReleaseNotes: true
           args: --bundles app
