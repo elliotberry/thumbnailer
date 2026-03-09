@@ -17,9 +17,9 @@
     "react-window": "^2.2.7"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.10.0",
+    "@tauri-apps/cli": "^2.10.1",
     "@vitejs/plugin-react": "^5.1.4",
-    "eslint": "^10.0.0",
+    "eslint": "^10.0.3",
     "vite": "^7.3.1"
   }
 }
