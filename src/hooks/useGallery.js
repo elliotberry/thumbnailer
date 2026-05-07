@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { THUMBNAIL_LOAD_SIZE } from '../constants/thumbnail'
 import { formatImageCount, getDroppedPaths, hasTauriInvoke } from '../utils/gallery'
 
-export function useGallery() {
+export function useGallery(generatedIconSize) {
   const [selectedFolder, setSelectedFolder] = useState('')
   const [items, setItems] = useState([])
   const [status, setStatus] = useState('')
@@ -12,6 +11,8 @@ export function useGallery() {
   const [loadingText, setLoadingText] = useState('Loading images...')
   const [error, setError] = useState('')
   const [thumbnailDataByPath, setThumbnailDataByPath] = useState({})
+  const [cacheDbSizeBytes, setCacheDbSizeBytes] = useState(0)
+  const [cacheBusy, setCacheBusy] = useState(false)
   const loadRunIdRef = useRef(0)
   const lastDroppedFolderRef = useRef({ path: '', timestamp: 0 })
 
@@ -47,8 +48,24 @@ export function useGallery() {
     }
   }, [])
 
+  const refreshCacheInfo = useCallback(async () => {
+    if (!hasTauriInvoke()) {
+      setCacheDbSizeBytes(0)
+      return
+    }
+    try {
+      const response = await invoke('get_cache_info')
+      const dbSizeBytes = Number(response?.dbSizeBytes ?? 0)
+      if (Number.isFinite(dbSizeBytes)) {
+        setCacheDbSizeBytes(Math.max(0, Math.round(dbSizeBytes)))
+      }
+    } catch (invokeError) {
+      setError(String(invokeError))
+    }
+  }, [])
+
   const loadGallery = useCallback(
-    async (folder) => {
+    async (folder, generatedIconSize) => {
       if (!hasTauriInvoke()) {
         setError('Tauri API unavailable. Start with `npm run tauri dev`.')
         return
@@ -63,7 +80,7 @@ export function useGallery() {
       try {
         const response = await invoke('load_gallery', {
           folderPath: folder,
-          thumbnailSize: THUMBNAIL_LOAD_SIZE,
+          thumbnailSize: generatedIconSize,
         })
         if (runId !== loadRunIdRef.current) {
           return
@@ -92,10 +109,11 @@ export function useGallery() {
         if (runId === loadRunIdRef.current) {
           setLoading(false)
           setLoadingText('Loading images...')
+          await refreshCacheInfo()
         }
       }
     },
-    [],
+    [refreshCacheInfo],
   )
 
   useEffect(() => {
@@ -111,7 +129,6 @@ export function useGallery() {
         const initialFolder = await invoke('get_initial_folder')
         if (!disposed && initialFolder) {
           setSelectedFolder(initialFolder)
-          await loadGallery(initialFolder)
         }
       } catch (invokeError) {
         if (!disposed) {
@@ -123,7 +140,18 @@ export function useGallery() {
     return () => {
       disposed = true
     }
-  }, [loadGallery])
+  }, [])
+
+  useEffect(() => {
+    refreshCacheInfo()
+  }, [refreshCacheInfo])
+
+  useEffect(() => {
+    if (!selectedFolder) {
+      return
+    }
+    loadGallery(selectedFolder, generatedIconSize)
+  }, [generatedIconSize, loadGallery, selectedFolder])
 
   useEffect(() => {
     if (!hasTauriInvoke()) {
@@ -133,8 +161,9 @@ export function useGallery() {
     let disposed = false
     let unlistenFileDrop
     let unlistenDragDrop
+    let unlistenOpenFolder
 
-    async function handleFolderDrop(event) {
+    function handleFolderDrop(event) {
       const droppedPaths = getDroppedPaths(event.payload)
       if (droppedPaths.length === 0) {
         return
@@ -149,13 +178,21 @@ export function useGallery() {
       lastDroppedFolderRef.current = { path: nextFolder, timestamp: now }
 
       setSelectedFolder(nextFolder)
-      await loadGallery(nextFolder)
+    }
+
+    function handleOpenFolder(event) {
+      const nextFolder = typeof event.payload === 'string' ? event.payload : ''
+      if (!nextFolder) {
+        return
+      }
+      setSelectedFolder(nextFolder)
     }
 
     async function registerDropListeners() {
       try {
         unlistenFileDrop = await listen('tauri://file-drop', handleFolderDrop)
         unlistenDragDrop = await listen('tauri://drag-drop', handleFolderDrop)
+        unlistenOpenFolder = await listen('open-folder', handleOpenFolder)
       } catch (eventError) {
         if (!disposed) {
           setError(String(eventError))
@@ -173,6 +210,9 @@ export function useGallery() {
       if (unlistenDragDrop) {
         unlistenDragDrop()
       }
+      if (unlistenOpenFolder) {
+        unlistenOpenFolder()
+      }
     }
   }, [loadGallery])
 
@@ -185,6 +225,26 @@ export function useGallery() {
       setStatus('Stopping thumbnail generation...')
     } catch (cancelError) {
       setError(String(cancelError))
+    }
+  }
+
+  async function clearThumbnailCache() {
+    if (!hasTauriInvoke() || cacheBusy || loading) {
+      return
+    }
+    setCacheBusy(true)
+    clearError()
+    try {
+      const response = await invoke('clear_thumbnail_cache')
+      const dbSizeBytes = Number(response?.dbSizeBytes ?? 0)
+      if (Number.isFinite(dbSizeBytes)) {
+        setCacheDbSizeBytes(Math.max(0, Math.round(dbSizeBytes)))
+      }
+      setStatus('Thumbnail cache cleared.')
+    } catch (invokeError) {
+      setError(String(invokeError))
+    } finally {
+      setCacheBusy(false)
     }
   }
 
@@ -203,6 +263,9 @@ export function useGallery() {
     clearError,
     loadGallery,
     stopGalleryScan,
+    clearThumbnailCache,
     thumbnailDataByPath,
+    cacheDbSizeBytes,
+    cacheBusy,
   }
 }

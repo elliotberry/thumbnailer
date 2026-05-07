@@ -1,4 +1,4 @@
-export function PreviewModal({
+﻿export function PreviewModal({
   previewItem,
   previewLoading,
   previewImageSrc,
@@ -15,7 +15,7 @@ export function PreviewModal({
     <div className="previewModalBackdrop" onClick={onClose} role="presentation">
       <div className="previewModal" onClick={(event) => event.stopPropagation()}>
         <div className="previewHeader">
-          <p className="previewCounter">{`${previewPosition}/${previewTotal}`}</p>
+          <p className="previewCounterTop">{`${previewPosition} / ${previewTotal}`}</p>
           <p className="previewTitle">{previewItem.name}</p>
           <div className="previewNav">
             <button type="button" className="previewClose" onClick={onClose}>

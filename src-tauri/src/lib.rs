@@ -1,4 +1,4 @@
-use std::{
+﻿use std::{
     collections::HashMap,
     env,
     fs,
@@ -17,7 +17,7 @@ use rayon::prelude::*;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, RunEvent};
 
 const DB_FILE_NAME: &str = "thumbnail_cache.sqlite";
 const PROGRESS_EMIT_INTERVAL: Duration = Duration::from_millis(100);
@@ -45,6 +45,12 @@ struct ThumbnailProgress {
     name: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CacheInfo {
+    db_size_bytes: u64,
+}
+
 struct PendingThumbnail {
     image_path: PathBuf,
     cache_key: String,
@@ -66,10 +72,51 @@ struct AppState {
 
 #[tauri::command]
 fn get_initial_folder() -> Option<String> {
-    env::args()
-        .skip(1)
-        .find(|arg| Path::new(arg).is_dir())
-        .map(|arg| arg.to_string())
+    env::args().skip(1).find_map(|arg| parse_folder_argument(&arg))
+}
+
+fn parse_folder_argument(argument: &str) -> Option<String> {
+    if Path::new(argument).is_dir() {
+        return Some(argument.to_string());
+    }
+
+    if let Some(file_url_path) = argument.strip_prefix("file://") {
+        let decoded = decode_percent_encoding(file_url_path);
+        if Path::new(&decoded).is_dir() {
+            return Some(decoded);
+        }
+    }
+
+    None
+}
+
+fn decode_percent_encoding(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            let high = bytes[index + 1];
+            let low = bytes[index + 2];
+            if let (Some(h), Some(l)) = (hex_to_u8(high), hex_to_u8(low)) {
+                decoded.push(h << 4 | l);
+                index += 3;
+                continue;
+            }
+        }
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&decoded).to_string()
+}
+
+fn hex_to_u8(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
 }
 
 #[tauri::command]
@@ -134,6 +181,34 @@ fn cancel_gallery_scan(state: tauri::State<'_, AppState>) {
     state.cancel_requested.store(true, Ordering::Relaxed);
 }
 
+#[tauri::command]
+async fn get_cache_info(app: tauri::AppHandle) -> Result<CacheInfo, String> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|err| format!("Failed to resolve app data path: {err}"))?;
+    fs::create_dir_all(&data_dir)
+        .map_err(|err| format!("Failed to create app data directory: {err}"))?;
+
+    tauri::async_runtime::spawn_blocking(move || get_cache_info_blocking(data_dir))
+        .await
+        .map_err(|err| format!("Failed to join cache info task: {err}"))?
+}
+
+#[tauri::command]
+async fn clear_thumbnail_cache(app: tauri::AppHandle) -> Result<CacheInfo, String> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|err| format!("Failed to resolve app data path: {err}"))?;
+    fs::create_dir_all(&data_dir)
+        .map_err(|err| format!("Failed to create app data directory: {err}"))?;
+
+    tauri::async_runtime::spawn_blocking(move || clear_thumbnail_cache_blocking(data_dir))
+        .await
+        .map_err(|err| format!("Failed to join cache clear task: {err}"))?
+}
+
 fn load_gallery_blocking(
     app: tauri::AppHandle,
     cancel_requested: Arc<AtomicBool>,
@@ -187,7 +262,7 @@ fn load_gallery_blocking(
             }
         }
 
-        match prepare_single_image(&connection, &image_path) {
+        match prepare_single_image(&connection, &image_path, thumbnail_size) {
             Ok((item, maybe_pending, maybe_thumbnail_data_url)) => {
                 if let Some(thumbnail_data_url) = maybe_thumbnail_data_url {
                     thumbnails.insert(item.path.clone(), thumbnail_data_url);
@@ -273,6 +348,43 @@ fn load_gallery_blocking(
     })
 }
 
+fn get_cache_info_blocking(data_dir: PathBuf) -> Result<CacheInfo, String> {
+    let db_path = data_dir.join(DB_FILE_NAME);
+    if !db_path.is_file() {
+        return Ok(CacheInfo { db_size_bytes: 0 });
+    }
+
+    let connection = Connection::open(&db_path)
+        .map_err(|err| format!("Failed to open cache database: {err}"))?;
+    init_schema(&connection)?;
+    let db_size_bytes = fs::metadata(&db_path)
+        .map_err(|err| format!("Failed to read cache database metadata: {err}"))?
+        .len();
+    Ok(CacheInfo { db_size_bytes })
+}
+
+fn clear_thumbnail_cache_blocking(data_dir: PathBuf) -> Result<CacheInfo, String> {
+    let db_path = data_dir.join(DB_FILE_NAME);
+    if !db_path.is_file() {
+        return Ok(CacheInfo { db_size_bytes: 0 });
+    }
+
+    let connection = Connection::open(&db_path)
+        .map_err(|err| format!("Failed to open cache database: {err}"))?;
+    init_schema(&connection)?;
+    connection
+        .execute("DELETE FROM thumbnails", [])
+        .map_err(|err| format!("Failed to clear cache entries: {err}"))?;
+    connection
+        .execute_batch("VACUUM;")
+        .map_err(|err| format!("Failed to vacuum cache database: {err}"))?;
+
+    let db_size_bytes = fs::metadata(&db_path)
+        .map_err(|err| format!("Failed to read cache database metadata: {err}"))?
+        .len();
+    Ok(CacheInfo { db_size_bytes })
+}
+
 fn load_full_image_blocking(path: String) -> Result<String, String> {
     let image_path = PathBuf::from(path);
     if !image_path.is_file() {
@@ -306,7 +418,7 @@ fn load_thumbnail_blocking(
     init_schema(&connection)?;
 
     let modified_unix = last_modified_unix(&image_path)?;
-    let cache_key = cache_key_for_path(&image_path);
+    let cache_key = cache_key_for_path(&image_path, thumbnail_size);
     let cached: Option<(Vec<u8>, String)> = connection
         .query_row(
             "SELECT thumbnail_blob, mime_type
@@ -355,9 +467,10 @@ fn load_thumbnail_blocking(
 fn prepare_single_image(
     connection: &Connection,
     image_path: &Path,
+    thumbnail_size: u32,
 ) -> Result<(GalleryItem, Option<PendingThumbnail>, Option<String>), String> {
     let modified_unix = last_modified_unix(image_path)?;
-    let cache_key = cache_key_for_path(image_path);
+    let cache_key = cache_key_for_path(image_path, thumbnail_size);
     let cached: Option<(Vec<u8>, String)> = connection
         .query_row(
             "SELECT thumbnail_blob, mime_type
@@ -497,9 +610,11 @@ fn last_modified_unix(path: &Path) -> Result<i64, String> {
     Ok(duration.as_secs() as i64)
 }
 
-fn cache_key_for_path(path: &Path) -> String {
+fn cache_key_for_path(path: &Path, thumbnail_size: u32) -> String {
     let mut hasher = Sha256::new();
     hasher.update(path.to_string_lossy().as_bytes());
+    hasher.update(b":");
+    hasher.update(thumbnail_size.to_le_bytes());
     format!("{:x}", hasher.finalize())
 }
 
@@ -527,7 +642,7 @@ fn data_url_for_blob(blob: &[u8], mime_type: &str) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .manage(AppState::default())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
@@ -545,8 +660,26 @@ pub fn run() {
             load_gallery,
             load_full_image,
             cancel_gallery_scan,
-            load_thumbnail
+            load_thumbnail,
+            get_cache_info,
+            clear_thumbnail_cache
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| {
+        if let RunEvent::Opened { urls } = event {
+            let opened_folder = urls.iter().find_map(|url| {
+                url.to_file_path()
+                    .ok()
+                    .and_then(|path| path.is_dir().then(|| path.to_string_lossy().to_string()))
+            });
+
+            if let Some(folder) = opened_folder {
+                if let Err(err) = app_handle.emit("open-folder", folder) {
+                    log::warn!("Failed to emit opened folder event: {}", err);
+                }
+            }
+        }
+    });
 }

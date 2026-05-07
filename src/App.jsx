@@ -1,9 +1,11 @@
-import { open } from '@tauri-apps/plugin-dialog'
+﻿import { open } from '@tauri-apps/plugin-dialog'
 import './App.css'
 import { useMemo } from 'react'
-import { hasTauriInvoke } from './utils/gallery'
+import { formatByteSize, hasTauriInvoke } from './utils/gallery'
 import {
+  MAX_GENERATED_ICON_SIZE,
   MAX_THUMBNAIL_SIZE,
+  MIN_GENERATED_ICON_SIZE,
   MIN_THUMBNAIL_SIZE,
 } from './constants/thumbnail'
 import { useThumbnailSize } from './hooks/useThumbnailSize'
@@ -15,7 +17,8 @@ import { GalleryGrid } from './components/GalleryGrid'
 import { PreviewModal } from './components/PreviewModal'
 
 function App() {
-  const { thumbnailSize, setThumbnailSize } = useThumbnailSize()
+  const { thumbnailSize, setThumbnailSize, generatedIconSize, setGeneratedIconSize } =
+    useThumbnailSize()
   const {
     selectedFolder,
     setSelectedFolder,
@@ -25,10 +28,12 @@ function App() {
     loadingText,
     error,
     clearError,
-    loadGallery,
     stopGalleryScan,
+    clearThumbnailCache,
     thumbnailDataByPath,
-  } = useGallery()
+    cacheDbSizeBytes,
+    cacheBusy,
+  } = useGallery(generatedIconSize)
   const {
     previewItem,
     previewImageSrc,
@@ -42,6 +47,7 @@ function App() {
 
   const hasItems = items.length > 0
   const columnWidthPx = useMemo(() => thumbnailSize, [thumbnailSize])
+  const cacheDbSizeLabel = useMemo(() => formatByteSize(cacheDbSizeBytes), [cacheDbSizeBytes])
 
 
   async function pickFolder() {
@@ -59,7 +65,6 @@ function App() {
       return
     }
     setSelectedFolder(selected)
-    await loadGallery(selected)
   }
 
   return (
@@ -70,8 +75,15 @@ function App() {
         minThumbnailSize={MIN_THUMBNAIL_SIZE}
         maxThumbnailSize={MAX_THUMBNAIL_SIZE}
         onThumbnailSizeChange={setThumbnailSize}
+        generatedIconSize={generatedIconSize}
+        minGeneratedIconSize={MIN_GENERATED_ICON_SIZE}
+        maxGeneratedIconSize={MAX_GENERATED_ICON_SIZE}
+        onGeneratedIconSizeChange={setGeneratedIconSize}
         onPickFolder={pickFolder}
         onStop={stopGalleryScan}
+        onClearCache={clearThumbnailCache}
+        cacheDbSizeLabel={cacheDbSizeLabel}
+        cacheBusy={cacheBusy}
         loading={loading}
       />
 
