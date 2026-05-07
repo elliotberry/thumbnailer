@@ -4,6 +4,11 @@
 # Compiled source
 *.com
 *.class
+/dist
+/dist/**
+dist
+dist/**/*
+dist/*
 *.dll
 *.exe
 *.o

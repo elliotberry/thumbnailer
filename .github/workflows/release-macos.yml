@@ -3,14 +3,14 @@ name: Build and Release macOS App
 on:
   push:
     branches:
-      - main
+    - main
     paths:
-      - "src/**"
-      - "src-tauri/**"
-      - "package.json"
-      - "package-lock.json"
-      - "vite.config.js"
-      - ".github/workflows/release-macos.yml"
+    - "src/**"
+    - "src-tauri/**"
+    - "package.json"
+    - "package-lock.json"
+    - "vite.config.js"
+    - ".github/workflows/release-macos.yml"
 
 concurrency:
   group: release-macos-${{ github.ref }}
@@ -24,39 +24,39 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v6.0.2
 
-      - name: Set release date
-        run: echo "RELEASE_DATE=$(date +'%m.%d.%Y')" >> "$GITHUB_ENV"
+    - name: Set release date
+      run: echo "RELEASE_DATE=$(date +'%m.%d.%Y')" >> "$GITHUB_ENV"
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: package-lock.json
+    - name: Setup Node.js
+      uses: actions/setup-node@v6.4.0
+      with:
+        node-version: 24
+        cache: npm
+        cache-dependency-path: package-lock.json
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+    - name: Setup Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache Rust dependencies/build
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            . -> target
-            src-tauri -> src-tauri/target
+    - name: Cache Rust dependencies/build
+      uses: Swatinem/rust-cache@v2.9.1
+      with:
+        workspaces: |
+          . -> target
+          src-tauri -> src-tauri/target
 
-      - name: Install frontend dependencies
-        run: npm ci
+    - name: Install frontend dependencies
+      run: npm ci
 
-      - name: Build and upload via tauri-action
-        uses: tauri-apps/tauri-action@v0.6.1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tauriScript: npx tauri
-          tagName: release-${{ env.RELEASE_DATE }}-${{ github.run_id }}
-          releaseName: ${{ env.RELEASE_DATE }}
-          releaseBody: macOS build from main on ${{ env.RELEASE_DATE }}.
-          generateReleaseNotes: true
-          args: --bundles app
+    - name: Build and upload via tauri-action
+      uses: tauri-apps/tauri-action@v0.6.2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tauriScript: npx tauri
+        tagName: release-${{ env.RELEASE_DATE }}-${{ github.run_id }}
+        releaseName: ${{ env.RELEASE_DATE }}
+        releaseBody: macOS build from main on ${{ env.RELEASE_DATE }}.
+        generateReleaseNotes: true
+        args: --bundles app
