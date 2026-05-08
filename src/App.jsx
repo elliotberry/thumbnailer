@@ -26,6 +26,7 @@ function App() {
     status,
     loading,
     loadingText,
+    loadingPhaseText,
     error,
     clearError,
     stopGalleryScan,
@@ -92,6 +93,7 @@ function App() {
       <GalleryGrid
         loading={loading}
         loadingText={loadingText}
+        loadingPhaseText={loadingPhaseText}
         hasItems={hasItems}
         columnWidthPx={columnWidthPx}
         items={items}

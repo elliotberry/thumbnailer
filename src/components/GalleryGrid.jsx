@@ -1,4 +1,4 @@
-import { memo } from 'react'
+﻿import { memo } from 'react'
 import { Grid } from 'react-window'
 import { AutoSizer } from 'react-virtualized-auto-sizer'
 
@@ -66,6 +66,7 @@ const GalleryCell = memo(function GalleryCell({
 export function GalleryGrid({
   loading,
   loadingText,
+  loadingPhaseText,
   hasItems,
   columnWidthPx,
   items,
@@ -80,7 +81,8 @@ export function GalleryGrid({
       {loading && (
         <div className="loadingOverlay" aria-live="polite" aria-busy="true">
           <div className="spinner" />
-          <p>{loadingText}</p>
+          <p className="loadingPrimaryText">{loadingText}</p>
+          {loadingPhaseText ? <p className="loadingPhaseText">{loadingPhaseText}</p> : null}
         </div>
       )}
     

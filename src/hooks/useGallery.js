@@ -9,6 +9,7 @@ export function useGallery(generatedIconSize) {
   const [status, setStatus] = useState('')
   const [loading, setLoading] = useState(false)
   const [loadingText, setLoadingText] = useState('Loading images...')
+  const [loadingPhaseText, setLoadingPhaseText] = useState('')
   const [error, setError] = useState('')
   const [thumbnailDataByPath, setThumbnailDataByPath] = useState({})
   const [cacheDbSizeBytes, setCacheDbSizeBytes] = useState(0)
@@ -29,6 +30,7 @@ export function useGallery(generatedIconSize) {
       const current = Number(payload.current ?? 0)
       const total = Number(payload.total ?? 0)
       const name = String(payload.name ?? 'image')
+      setLoadingPhaseText('Generating thumbnails...')
       if (current > 0 && total > 0) {
         setLoadingText(`Generating ${current}/${total}: ${name}`)
       } else {
@@ -74,6 +76,7 @@ export function useGallery(generatedIconSize) {
       loadRunIdRef.current = runId
       setLoading(true)
       setLoadingText('Preparing thumbnails...')
+      setLoadingPhaseText('Scanning folder and checking cache...')
       setError('')
       setThumbnailDataByPath({})
       setStatus(`Scanning ${folder}...`)
@@ -109,6 +112,7 @@ export function useGallery(generatedIconSize) {
         if (runId === loadRunIdRef.current) {
           setLoading(false)
           setLoadingText('Loading images...')
+          setLoadingPhaseText('')
           await refreshCacheInfo()
         }
       }
@@ -259,6 +263,7 @@ export function useGallery(generatedIconSize) {
     status,
     loading,
     loadingText,
+    loadingPhaseText,
     error,
     clearError,
     loadGallery,

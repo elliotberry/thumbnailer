@@ -221,7 +221,15 @@
 
 .loadingOverlay p {
   margin: 0;
+}
+
+.loadingPrimaryText {
   font-weight: 600;
+}
+
+.loadingPhaseText {
+  font-size: 0.88rem;
+  opacity: 0.82;
 }
 
 .spinner {
